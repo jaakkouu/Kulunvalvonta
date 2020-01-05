@@ -4,22 +4,25 @@
 const char* ssid = "ZyXEL7EAEB8";
 const char* password = "4MWVTX94P7MP3";
 int status = WL_IDLE_STATUS;
+int switchReed = 25;
+int led1 = 33; // pin red
+int led2 = 32; // pin green
+int done = 0; // prevent multiple requests
 int state = 0;
 IPAddress server (192,168,1,1);
 
 WiFiClient client;
 
 void setup() {
+	pinMode(led1, OUTPUT);
+	pinMode(led2, OUTPUT);
+	pinMode(switchReed, INPUT);
     Serial.begin(115200);
-    Serial.println("\nConnecting");
-    Serial.println("Connecting Wifi ");
-    for (int loops = 10; loops > 0; loops--) {
+	for (int loops = 10; loops > 0; loops--) {
 		status = WiFi.begin(ssid, password);
 		if (status == WL_CONNECTED) {
 			Serial.println("");
 			Serial.print("WiFi connected ");
-			Serial.print("IP address: ");
-			Serial.println(WiFi.localIP());
 			break;
 		} else {
 			Serial.println(loops);
@@ -27,7 +30,7 @@ void setup() {
 		}
     }
     if (status != WL_CONNECTED) {
-		Serial.println("WiFi connect failed");
+		Serial.println("Connection to WiFi Failed");
 		delay(1000);
 		ESP.restart();
     }
@@ -40,66 +43,69 @@ void login(){
 	delay(100);
 }
 
-void readArpTable() {
-
-}
-
-void arpRequest(){
-	delay(200);
-	client.println("arp -n");
-	readArpTable();
+void leases() {
 	delay(100);
+	client.println("./test.sh");
+	delay(200);
 }
-
-int x;
-String str;
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-		if(!client.connected()){
-			if(client.connect(server, 23)){
-				Serial.println("Connected telnet");
-			} else{
-				Serial.println("telnet connection failed");
+	if(digitalRead(switchReed) == HIGH) {
+		digitalWrite(led1, LOW);
+		digitalWrite(led2, HIGH);
+		done = 1;
+	} else {
+		digitalWrite(led1, HIGH);
+		digitalWrite(led2, LOW);
+	}
+	delay(1);
+	if(done == 1) {
+		if (WiFi.status() == WL_CONNECTED) {
+			if(!client.connected()) {
+				if(client.connect(server, 23)) {
+					Serial.println("Connected Telnet");
+				} else{
+					Serial.println("Telnet Connection Failed");
+				}
+			} else {
+				if(client.available()){
+					char c = client.read();
+					Serial.print(c);
+					switch (state){
+						case 0:
+							if(c == ':'){
+								state = 1;
+							}
+							break;
+						case 1:
+							login();
+							state = 2;
+							break;
+						case 2:
+							if(c == '#'){
+								state = 3;
+							}
+							break;
+						case 3:
+							leases();
+							done = 0;
+							state = 4;
+							break;
+						case 4:
+							if(!client.available()){
+								client.stop();
+								state = 0;
+								delay(10000);
+							}
+							break;
+						default:
+							break;
+					}
+				}
 			}
 		} else {
-			if(client.available()){
-				char c = client.read();
-				Serial.print(c);
-				switch (state){
-					case 0:
-						if(c == ':'){
-							state = 1;
-						}
-						break;
-					case 1:
-						login();
-						state = 2;
-						break;
-					case 2:
-						if(c == '#'){
-							state = 3;
-						}
-						break;
-					case 3:
-						arpRequest();
-						state = 4;
-						break;
-					case 4:
-						if(!client.available()){
-							client.stop();
-							state = 0;
-							delay(10000);
-						}
-						break;
-					default:
-						break;
-					}
-			}
+			Serial.println("WiFi Not Connected!");
+			delay(1000);
 		}
-  }
-  else {
-    Serial.println("WiFi not connected!");
-    delay(1000);
-  }
+	}
 }
